@@ -198,8 +198,18 @@ BenchmarkMPMC_MPMC-8   	 2215446	       540.4 ns/op
 
 This corresponds to approximately **10e6 million enqueue+dequeue operations per second**
 on a single consumer goroutine for MP1C and 2e6 for MPMC.
+it is completely normal that MPMC is several times slower than MPSC.
+The slowdown comes from three things:
+- Extra CAS on dequeue
+- High contention between consumers
+- The benchmark for MPMC introduces extra overhead that MPSC does not have
 
-
+Meaning:
+Every Dequeue() requires:
+- atomic.Load
+- CAS
+- potential retry loop
+- With 1+ consumers → CAS collisions are very frequent. This alone can easily produce 2–3× slowdown.
 ---
 
 ## 🏗 Design Notes

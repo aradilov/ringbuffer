@@ -248,7 +248,7 @@ func BenchmarkMPMC_MPMC(b *testing.B) {
 	wg.Wait()
 	b.StopTimer()
 
-	b.Logf("enqueueAttempts=%d, dequeueAttempts=%d, producers=%d, perProducer=%d, iterations=%d, written=%d", enqueueAttempts, dequeueAttempts, producers, perProducer, iterations, written)
+	//b.Logf("enqueueAttempts=%d, dequeueAttempts=%d, producers=%d, perProducer=%d, iterations=%d, written=%d", enqueueAttempts, dequeueAttempts, producers, perProducer, iterations, written)
 
 	// At this point all values should be seen; we stop consumers
 	// by not providing more data. They may spin, but test ends.

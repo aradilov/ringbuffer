@@ -177,6 +177,7 @@ func BenchmarkMPMC_1P1C(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for !q.Enqueue(i) {
+			i--
 			runtime.Gosched()
 		}
 	}
@@ -188,45 +189,76 @@ func BenchmarkMPMC_1P1C(b *testing.B) {
 func BenchmarkMPMC_MPMC(b *testing.B) {
 	const (
 		capacity  = 1 << 16
-		producers = 1e3
-		consumers = 8
+		producers = 8
+		consumers = producers
 	)
 
 	q := NewMPMC[int](capacity)
-	perProducer := b.N / producers
+	bn := b.N
+	if bn < producers {
+		bn = producers
+	}
+
+	perProducer := bn / producers
+	iterations := perProducer * producers
+
+	seen := make([]int32, iterations+1)
 
 	var wg sync.WaitGroup
 	wg.Add(producers + consumers)
 
+	var dequeueAttempts, enqueueAttempts, written int64
+
 	// Consumers
 	for c := 0; c < consumers; c++ {
-		go func() {
+		go func(c int) {
 			defer wg.Done()
-			for i := 0; i < b.N/consumers; i++ {
-				for {
-					if v, ok := q.Dequeue(); ok {
-						_ = v
-						break
-					}
-					runtime.Gosched()
+			for i := 0; i < perProducer; i++ {
+				if v, ok := q.Dequeue(); !ok {
+					i--
+					atomic.AddInt64(&dequeueAttempts, 1)
+				} else {
+					atomic.AddInt32(&seen[v], 1)
 				}
+				runtime.Gosched()
 			}
-		}()
+		}(c)
 	}
 
 	// Producers
 	for p := 0; p < producers; p++ {
-		go func() {
+		go func(p int) {
 			defer wg.Done()
-			for i := 0; i < perProducer; i++ {
-				for !q.Enqueue(i) {
+			start := p * perProducer
+			end := start + perProducer
+			for i := start; i < end; i++ {
+				ok := q.Enqueue(i)
+				if !ok {
+					i--
+					atomic.AddInt64(&enqueueAttempts, 1)
 					runtime.Gosched()
+					continue
 				}
+				atomic.AddInt64(&written, 1)
 			}
-		}()
+		}(p)
 	}
 
 	b.ResetTimer()
 	wg.Wait()
 	b.StopTimer()
+
+	b.Logf("enqueueAttempts=%d, dequeueAttempts=%d, producers=%d, perProducer=%d, iterations=%d, written=%d", enqueueAttempts, dequeueAttempts, producers, perProducer, iterations, written)
+
+	// At this point all values should be seen; we stop consumers
+	// by not providing more data. They may spin, but test ends.
+	// In a real implementation you'd have a shutdown signal.
+
+	// Verify that each value is seen exactly once.
+	for i := 0; i < iterations; i++ {
+		if seen[i] != 1 {
+			b.Fatalf("value %d seen %d times (expected 1)", i, seen[i])
+		}
+	}
+
 }

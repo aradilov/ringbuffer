@@ -1,6 +1,7 @@
 package ringbuffer
 
 import (
+	"runtime"
 	"sync/atomic"
 )
 
@@ -63,15 +64,31 @@ func (q *MPSC[T]) Enqueue(v T) bool {
 			// => queue is full
 			return false
 		} else {
-			// diff > 0 => this slot still belongs to a previous cycle
-			// retry (pos is likely to change)
+			// diff > 0 => this slot still belongs to a previous cycle.
+			// Just retry with a new pos.
+			runtime.Gosched()
 		}
 	}
 }
 
-// Dequeue pops an element from the queue.
+// DequeueAttempts pops an element from the queue.
 // Returns (zero, false) if the queue is empty.
 // IMPORTANT: must be called from a single consumer goroutine.
+//func (q *MPSC[T]) DequeueAttempts(attempts int) (T, bool) {
+//	for i := 0; i < attempts; i++ {
+//		b, ok := q.Dequeue()
+//		if ok {
+//			return b, true
+//		}
+//
+//		runtime.Gosched()
+//		continue
+//	}
+//
+//	var zero T
+//	return zero, false
+//}
+
 func (q *MPSC[T]) Dequeue() (T, bool) {
 	pos := q.dequeue
 	s := &q.slots[pos&q.mask]

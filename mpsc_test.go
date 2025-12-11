@@ -247,3 +247,73 @@ func BenchmarkMPSC_MP1C(b *testing.B) {
 	}
 
 }
+
+func BenchmarkChan(b *testing.B) {
+	const (
+		capacity  = 1 << 16
+		producers = 8
+	)
+
+	bn := b.N
+	if bn < producers {
+		bn = producers
+	}
+
+	perProducer := bn / producers
+	iterations := perProducer * producers
+
+	ch := make(chan int, capacity)
+	seen := make([]int32, iterations+1)
+
+	var wg sync.WaitGroup
+	wg.Add(producers + 1) // producers + consumer
+
+	var dequeueAttempts, written int64
+
+	go func() {
+		defer wg.Done()
+		total := 0
+		for total < iterations {
+			v, ok := <-ch
+
+			if !ok {
+				atomic.AddInt64(&dequeueAttempts, 1)
+				runtime.Gosched()
+				continue
+			}
+			atomic.AddInt32(&seen[v], 1)
+			total++
+		}
+	}()
+
+	// Producers
+	for p := 0; p < producers; p++ {
+		go func(p int) {
+			defer wg.Done()
+			start := p * perProducer
+			end := start + perProducer
+			for i := start; i < end; i++ {
+				ch <- i
+				atomic.AddInt64(&written, 1)
+			}
+		}(p)
+	}
+
+	b.ResetTimer()
+	wg.Wait()
+	b.StopTimer()
+
+	//b.Logf("enqueueAttempts=%d, dequeueAttempts=%d, producers=%d, perProducer=%d, iterations=%d, written=%d", enqueueAttempts, dequeueAttempts, producers, perProducer, iterations, written)
+
+	// At this point all values should be seen; we stop consumers
+	// by not providing more data. They may spin, but test ends.
+	// In a real implementation you'd have a shutdown signal.
+
+	// Verify that each value is seen exactly once.
+	for i := 0; i < iterations; i++ {
+		if seen[i] != 1 {
+			b.Fatalf("value %d seen %d times (expected 1)", i, seen[i])
+		}
+	}
+
+}

@@ -9,6 +9,7 @@ import "sync/atomic"
 // MPSC: multi-producer, single-consumer (MPSC), bounded, lock-free.
 
 type slot[T any] struct {
-	seq atomic.Uint64 // sequence number (controls visibility and slot ownership)
-	val T             // actual value stored in this slot
+	seq  atomic.Uint64 // sequence number (controls visibility and slot ownership)
+	lock atomic.Uint64 // sequence number for release loc (controls visibility and slot ownership)
+	val  T             // actual value stored in this slot
 }

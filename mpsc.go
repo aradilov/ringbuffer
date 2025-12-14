@@ -86,6 +86,7 @@ func (q *MPSC[T]) Release(slotPosition uint64) {
 // Next pops an element from the queue but doesn't mark slot as free for the producers. Use Release method for it.
 // Returns (zero, 0, false) if the queue is empty, otherwise (T, slot position, true).
 // IMPORTANT: must be called from a single consumer goroutine.
+// IMPORTANT: Each successful Next call requires a Release
 func (q *MPSC[T]) Next() (T, uint64, bool) {
 	pos := q.dequeue
 	s := &q.slots[pos&q.mask]

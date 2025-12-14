@@ -36,11 +36,12 @@ func TestTaskQSequential(t *testing.T) {
 
 	// Dequeue N items
 	for i := 0; i < N; i++ {
-		v, pos, seq, ok := q.Next()
+		pos, seq, ok := q.Next()
 		if i < capacity {
 			if !ok {
 				t.Fatalf("dequeue failed at %d (queue unexpectedly empty)", i)
 			}
+			v := q.Get(pos)
 			expected := fmt.Sprintf("item %d", i)
 			if string(v.task) != expected {
 				t.Fatalf("expected %q, got %q (FIFO violated)", expected, v.task)
@@ -56,8 +57,8 @@ func TestTaskQSequential(t *testing.T) {
 	}
 
 	// Now queue must be empty
-	if v, _, _, ok := q.Next(); ok {
-		t.Fatalf("expected empty queue at the end, got value=%v", v)
+	if pos, _, ok := q.Next(); ok {
+		t.Fatalf("expected empty queue at the end, got value=%v", q.Get(pos))
 	}
 }
 
@@ -102,7 +103,7 @@ func TestTaskQLock(t *testing.T) {
 	go func() {
 		time.Sleep(time.Millisecond * 2)
 		for i := 0; i < 2; i++ {
-			_, pos, seq, ok := q.Next()
+			pos, seq, ok := q.Next()
 			if !ok {
 				t.Errorf("expected task, got nothing")
 			}
@@ -162,7 +163,7 @@ func TestTaskQ(t *testing.T) {
 		defer wg.Done()
 		// Dequeue N items
 		for i := 0; i < int(iterations); i++ {
-			_, pos, seq, ok := q.Next()
+			pos, seq, ok := q.Next()
 			if !ok {
 				atomic.AddInt64(&dequeueAttempts, 1)
 				i--
@@ -207,10 +208,10 @@ func TestTaskQ(t *testing.T) {
 	wg.Wait()
 
 	// Now queue must be empty
-	if v, _, _, ok := q.Next(); ok {
-		t.Fatalf("expected empty queue at the end, got value=%v", v)
+	if pos, _, ok := q.Next(); ok {
+		t.Fatalf("expected empty queue at the end, got value=%v", q.Get(pos))
 	}
 
-	t.Logf("dequeueAttempts=%d, written = %d", dequeueAttempts, written)
+	//t.Logf("dequeueAttempts=%d, written = %d", dequeueAttempts, written)
 
 }

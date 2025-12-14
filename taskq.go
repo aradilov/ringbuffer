@@ -154,12 +154,16 @@ func (q *TaskQ) DoNoWait(task []byte) bool {
 	}
 }
 
-// Get returns T by slot position
+// Get returns T by slot position (for debug propose only, use Lock instead of)
 func (q *TaskQ) Get(slotPosition uint64) *T {
 	s := &q.slots[slotPosition&q.mask]
 	return &s.val
 }
 
+// Lock attempts to acquire a lock on the specified queue slot if the expected sequence matches.
+// If the lock is successfully acquired, the callback function `cb` is executed on the slot's value.
+// For successful execution and if `cb` returns true, the slot lock is reset to the expected sequence.
+// Returns true if the lock was acquired and the callback was executed, otherwise false.
 func (q *TaskQ) Lock(slotPosition uint64, expectedSeq uint64, cb func(t *T) bool) bool {
 	s := &q.slots[slotPosition&q.mask]
 	newSeq := slotPosition + q.capacity
@@ -199,28 +203,25 @@ func (q *TaskQ) Release(slotPosition uint64, expectedSeq uint64) bool {
 // Next pops an element from the queue but doesn't mark slot as free for the producers. Use Release method for it.
 // Returns (zero, 0, 0, false) if the queue is empty, otherwise (T, slot position, slot sequence, true).
 // IMPORTANT: must be called from a single consumer goroutine.
-func (q *TaskQ) Next() (T, uint64, uint64, bool) {
+func (q *TaskQ) Next() (uint64, uint64, bool) {
 	pos := q.dequeue
 	s := &q.slots[pos&q.mask]
 
 	seq := s.seq.Load()
 	diff := int64(seq) - int64(pos+1)
 
-	var zero T
-
 	if diff == 0 {
 		q.dequeue = pos + 1
-		v := s.val
-		return v, pos, seq, true
+		return pos, seq, true
 	}
 
 	if diff < 0 {
 		// queue is logically empty (consumer is ahead of producers)
-		return zero, 0, 0, false
+		return 0, 0, false
 	}
 
 	// diff > 0 => producer is not done yet or in intermediate state
-	return zero, 0, 0, false
+	return 0, 0, false
 }
 
 // Capacity returns the fixed queue capacity.

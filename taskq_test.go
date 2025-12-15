@@ -212,6 +212,8 @@ func TestTaskQDeadline(t *testing.T) {
 		t.Fatalf("expected empty queue at the end, got value=%v", q.Get(pos))
 	}
 
+	stats := q.Stats()
+	t.Logf("stats: %+v", stats)
 	//t.Logf("dequeueAttempts=%d, written = %d", dequeueAttempts, written)
 
 }

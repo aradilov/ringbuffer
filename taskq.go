@@ -16,7 +16,7 @@ var (
 type T struct {
 	task []byte
 
-	resp func([]byte)
+	resp func([]byte) error
 
 	ch chan error
 }
@@ -26,9 +26,9 @@ func (t *T) Task() []byte {
 	return t.task
 }
 
-// SetRespCallback sets the response callback function to handle response data as a slice of bytes.
-func (t *T) SetRespCallback(cb func(resp []byte)) {
-	t.resp = cb
+// Resp invokes the stored response function with the provided byte slice and returns any error it produces.
+func (t *T) Resp(bb []byte) error {
+	return t.resp(bb)
 }
 
 func (t *T) Reset() {
@@ -107,14 +107,14 @@ func (q *TaskQ) Stats() TaskQStats {
 		Success:                        atomic.LoadUint64(&q.success),
 	}
 }
-func (q *TaskQ) DoBytes(task []byte, reader func(resp []byte), ctx context.Context) error {
+func (q *TaskQ) DoBytes(task []byte, reader func(resp []byte) error, ctx context.Context) error {
 	return q.Do(func(bb []byte, _ uint64, _ uint64) []byte { return append(bb[:0], task...) }, reader, ctx)
 }
 
 // Do pushes an element into the queue with the given content.
 // May be called concurrently from many goroutines (producers).
 // It is safe to call Release after Do because Do works with T copy.
-func (q *TaskQ) Do(writer func(task []byte, slotPosition uint64, expectedSeq uint64) []byte, reader func(resp []byte), ctx context.Context) error {
+func (q *TaskQ) Do(writer func(task []byte, slotPosition uint64, expectedSeq uint64) []byte, reader func(resp []byte) error, ctx context.Context) error {
 
 	var ch chan error
 	chv := errorChPool.Get()

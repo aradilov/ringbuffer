@@ -86,10 +86,11 @@ func TestTaskQLock(t *testing.T) {
 		time.Sleep(time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
-		err := q.DoBytes(msg2, func(resp []byte) {
+		err := q.DoBytes(msg2, func(resp []byte) error {
 			if string(resp) != string(msg2) {
 				t.Errorf("expected %q, got %q", msg2, resp)
 			}
+			return nil
 		}, ctx)
 		cancel()
 		if nil != err {
@@ -192,10 +193,11 @@ func TestTaskQDeadline(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 
 				task := []byte(fmt.Sprintf("item %d", i))
-				err := q.DoBytes(task, func(resp []byte) {
+				err := q.DoBytes(task, func(resp []byte) error {
 					if string(resp) != string(task) {
 						t.Fatalf("expected %q at %d, got %q", task, i, resp)
 					}
+					return nil
 				}, ctx)
 				cancel()
 				if nil != err {

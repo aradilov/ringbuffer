@@ -96,11 +96,14 @@ func (q *TaskQ) Stats() TaskQStats {
 		Success:                        atomic.LoadUint64(&q.success),
 	}
 }
+func (q *TaskQ) DoBytes(task []byte, reader func(resp []byte), ctx context.Context) error {
+	return q.Do(func(bb []byte) []byte { return append(bb[:0], task...) }, reader, ctx)
+}
 
 // Do pushes an element into the queue with the given content.
 // May be called concurrently from many goroutines (producers).
 // It is safe to call Release after Do because Do works with T copy.
-func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) error {
+func (q *TaskQ) Do(writer func(task []byte) []byte, reader func(resp []byte), ctx context.Context) error {
 
 	var ch chan error
 	chv := errorChPool.Get()
@@ -122,7 +125,7 @@ func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) e
 			if q.enqueue.CompareAndSwap(pos, pos+1) {
 				// we won the slot
 				v := &s.val
-				v.task = append(v.task[:0], task...)
+				v.task = writer(v.task)
 				v.ch = ch
 
 				// publish the value: seq = pos+1

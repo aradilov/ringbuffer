@@ -67,7 +67,7 @@ func TestTaskQLock(t *testing.T) {
 		capacity = 1024
 	)
 	q := NewTaskQ(capacity)
-	done := make(chan struct{})
+	DoBytesne := make(chan struct{})
 
 	timeout := time.Millisecond * 10
 	msg2 := []byte("msg2")
@@ -75,7 +75,7 @@ func TestTaskQLock(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		msg := []byte("msg1")
-		err := q.Do(msg, ctx, nil)
+		err := q.DoBytes(msg, nil, ctx)
 		cancel()
 		if nil == err {
 			t.Errorf("expected timeout, got nil")
@@ -86,17 +86,17 @@ func TestTaskQLock(t *testing.T) {
 		time.Sleep(time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
-		err := q.Do(msg2, ctx, func(resp []byte) {
+		err := q.DoBytes(msg2, func(resp []byte) {
 			if string(resp) != string(msg2) {
 				t.Errorf("expected %q, got %q", msg2, resp)
 			}
-		})
+		}, ctx)
 		cancel()
 		if nil != err {
 			t.Errorf("expected nil, got %v", err)
 		}
 
-		done <- struct{}{}
+		DoBytesne <- struct{}{}
 	}()
 
 	// consumer
@@ -139,7 +139,7 @@ func TestTaskQLock(t *testing.T) {
 
 	}()
 
-	<-done
+	<-DoBytesne
 }
 
 func TestTaskQDeadline(t *testing.T) {
@@ -192,11 +192,11 @@ func TestTaskQDeadline(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 
 				task := []byte(fmt.Sprintf("item %d", i))
-				err := q.Do(task, ctx, func(resp []byte) {
+				err := q.DoBytes(task, func(resp []byte) {
 					if string(resp) != string(task) {
 						t.Fatalf("expected %q at %d, got %q", task, i, resp)
 					}
-				})
+				}, ctx)
 				cancel()
 				if nil != err {
 					t.Errorf("expected nil at %d, got %v", i, err)

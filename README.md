@@ -6,7 +6,6 @@ This repository contains three production-ready queue implementations:
 
 - **MPSC** — multi-producer, single-consumer, bounded, lock-free
 - **MPMC** — multi-producer, multi-consumer, bounded, lock-free
-- **TaskQ** — multi-producer, single-consumer, bounded, lock-free with Deadline/Lock Slot features
 
 Both queues provide:
 

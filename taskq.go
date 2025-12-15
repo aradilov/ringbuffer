@@ -15,18 +15,25 @@ var (
 
 type T struct {
 	task []byte
-	resp []byte
+
+	resp func([]byte)
 
 	ch chan error
 }
 
+// Task returns the current task as a slice of bytes.
 func (t *T) Task() []byte {
 	return t.task
 }
 
+// SetRespCallback sets the response callback function to handle response data as a slice of bytes.
+func (t *T) SetRespCallback(cb func(resp []byte)) {
+	t.resp = cb
+}
+
 func (t *T) Reset() {
 	t.task = t.task[:0]
-	t.resp = t.resp[:0]
+	t.resp = nil
 	t.ch = nil
 }
 
@@ -131,6 +138,7 @@ func (q *TaskQ) Do(writer func(task []byte, slotPosition uint64, expectedSeq uin
 				offset := pos + 1
 
 				v := &s.val
+				v.resp = reader
 				v.task = writer(v.task, pos, offset)
 				v.ch = ch
 
@@ -141,7 +149,6 @@ func (q *TaskQ) Do(writer func(task []byte, slotPosition uint64, expectedSeq uin
 				select {
 				case err := <-ch:
 					atomic.AddUint64(&q.success, 1)
-					reader(v.resp)
 					q.Release(pos, offset)
 					errorChPool.Put(chv)
 					return err

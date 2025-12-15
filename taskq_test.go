@@ -125,7 +125,7 @@ func TestTaskQLock(t *testing.T) {
 					if string(task.task) != string(msg2) {
 						t.Errorf("expected %q, got %q", msg2, task.task)
 					} else {
-						task.resp = msg2
+						task.resp(msg2)
 						task.ch <- nil
 					}
 
@@ -172,7 +172,7 @@ func TestTaskQDeadline(t *testing.T) {
 			}
 
 			ok = q.Lock(pos, seq, func(task *T) bool {
-				task.resp = task.task
+				task.resp(task.task)
 				task.ch <- nil
 				return true
 			})

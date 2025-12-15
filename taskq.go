@@ -26,9 +26,9 @@ func (t *T) Task() []byte {
 	return t.task
 }
 
-// Resp invokes the stored response function with the provided byte slice and returns any error it produces.
-func (t *T) Resp(bb []byte) error {
-	return t.resp(bb)
+// Done invokes the stored response function with the provided byte slice and returns any error it produces.
+func (t *T) Done(bb []byte) {
+	t.ch <- t.resp(bb)
 }
 
 func (t *T) Reset() {

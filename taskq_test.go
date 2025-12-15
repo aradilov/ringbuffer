@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Basic sanity: sequential enqueue/dequeue with ints.
+// Basic sanity: sequential enqueue/dequeue
 func TestTaskQSequential(t *testing.T) {
 	const (
 		capacity = 1024

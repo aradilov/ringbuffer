@@ -37,6 +37,30 @@ type TaskQ struct {
 	_        [64]byte
 	dequeue  uint64 // logical "head", updated by a single consumer
 	_        [64]byte
+
+	dequeueAttempts                uint64
+	dequeueFailedQIsEmpty          uint64
+	dequeueFailedIntermediateState uint64
+
+	enqueueAttempts                uint64
+	enqueueFailedQIsFull           uint64
+	enqueueFailedIntermediateState uint64
+
+	timeout uint64
+	success uint64
+}
+
+type TaskQStats struct {
+	DequeueAttempts                uint64
+	DequeueFailedQIsEmpty          uint64
+	DequeueFailedIntermediateState uint64
+
+	EnqueueAttempts                uint64
+	EnqueueFailedQIsFull           uint64
+	EnqueueFailedIntermediateState uint64
+
+	Timeout uint64
+	Success uint64
 }
 
 // NewTaskQ creates a new bounded ring queue.
@@ -59,6 +83,20 @@ func NewTaskQ(capacity uint64) *TaskQ {
 	}
 }
 
+// Stats retrieves the current statistics of the TaskQ
+func (q *TaskQ) Stats() TaskQStats {
+	return TaskQStats{
+		DequeueAttempts:                atomic.LoadUint64(&q.dequeueAttempts),
+		DequeueFailedQIsEmpty:          atomic.LoadUint64(&q.dequeueFailedQIsEmpty),
+		DequeueFailedIntermediateState: atomic.LoadUint64(&q.dequeueFailedIntermediateState),
+		EnqueueAttempts:                atomic.LoadUint64(&q.enqueueAttempts),
+		EnqueueFailedIntermediateState: atomic.LoadUint64(&q.enqueueFailedIntermediateState),
+		EnqueueFailedQIsFull:           atomic.LoadUint64(&q.enqueueFailedQIsFull),
+		Timeout:                        atomic.LoadUint64(&q.timeout),
+		Success:                        atomic.LoadUint64(&q.success),
+	}
+}
+
 // Do pushes an element into the queue with the given content.
 // May be called concurrently from many goroutines (producers).
 // It is safe to call Release after Do because Do works with T copy.
@@ -71,6 +109,7 @@ func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) e
 	}
 	ch = chv.(chan error)
 
+	atomic.AddUint64(&q.enqueueAttempts, 1)
 	for {
 		pos := q.enqueue.Load()
 		s := &q.slots[pos&q.mask]
@@ -93,11 +132,13 @@ func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) e
 
 				select {
 				case err := <-ch:
+					atomic.AddUint64(&q.success, 1)
 					reader(v.resp)
 					q.Release(pos, offset)
 					errorChPool.Put(chv)
 					return err
 				case <-ctx.Done():
+					atomic.AddUint64(&q.timeout, 1)
 					q.Release(pos, offset)
 					errorChPool.Put(chv)
 					return ErrTimeout
@@ -105,10 +146,12 @@ func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) e
 			}
 			// contention, retry
 		} else if diff < 0 {
+			atomic.AddUint64(&q.enqueueFailedQIsFull, 1)
 			// slot has not been freed by the consumer yet
 			// => queue is full
 			return ErrQueueIsFull
 		} else {
+			atomic.AddUint64(&q.enqueueFailedIntermediateState, 1)
 			// diff > 0 => this slot still belongs to a previous cycle.
 			// Just retry with a new pos.
 			runtime.Gosched()
@@ -120,6 +163,7 @@ func (q *TaskQ) Do(task []byte, ctx context.Context, reader func(resp []byte)) e
 // Returns false if the queue is full (overflow).
 // May be called concurrently from many goroutines (producers).
 func (q *TaskQ) DoNoWait(task []byte) bool {
+	atomic.AddUint64(&q.enqueueAttempts, 1)
 	for {
 		pos := q.enqueue.Load()
 		s := &q.slots[pos&q.mask]
@@ -143,10 +187,12 @@ func (q *TaskQ) DoNoWait(task []byte) bool {
 			}
 			// contention, retry
 		} else if diff < 0 {
+			atomic.AddUint64(&q.enqueueFailedQIsFull, 1)
 			// slot has not been freed by the consumer yet
 			// => queue is full
 			return false
 		} else {
+			atomic.AddUint64(&q.enqueueFailedIntermediateState, 1)
 			// diff > 0 => this slot still belongs to a previous cycle.
 			// Just retry with a new pos.
 			runtime.Gosched()
@@ -194,6 +240,7 @@ func (q *TaskQ) Release(slotPosition uint64, expectedSeq uint64) bool {
 		if ok {
 			break
 		}
+		runtime.Gosched()
 	}
 
 	return true
@@ -206,6 +253,7 @@ func (q *TaskQ) Release(slotPosition uint64, expectedSeq uint64) bool {
 func (q *TaskQ) Next() (uint64, uint64, bool) {
 	pos := q.dequeue
 	s := &q.slots[pos&q.mask]
+	atomic.AddUint64(&q.dequeueAttempts, 1)
 
 	seq := s.seq.Load()
 	diff := int64(seq) - int64(pos+1)
@@ -216,10 +264,12 @@ func (q *TaskQ) Next() (uint64, uint64, bool) {
 	}
 
 	if diff < 0 {
+		atomic.AddUint64(&q.dequeueFailedQIsEmpty, 1)
 		// queue is logically empty (consumer is ahead of producers)
 		return 0, 0, false
 	}
 
+	atomic.AddUint64(&q.dequeueFailedIntermediateState, 1)
 	// diff > 0 => producer is not done yet or in intermediate state
 	return 0, 0, false
 }

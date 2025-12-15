@@ -142,7 +142,7 @@ func TestTaskQLock(t *testing.T) {
 	<-done
 }
 
-func TestTaskQ(t *testing.T) {
+func TestTaskQDeadline(t *testing.T) {
 	const (
 		capacity  = 1024
 		producers = 8

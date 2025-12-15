@@ -20,6 +20,10 @@ type T struct {
 	ch chan error
 }
 
+func (t *T) Task() []byte {
+	return t.task
+}
+
 func (t *T) Reset() {
 	t.task = t.task[:0]
 	t.resp = t.resp[:0]

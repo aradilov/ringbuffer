@@ -1,5 +1,7 @@
 package ringbuffer
 
+import "runtime"
+
 type ArrayMPMC[T any] struct {
 	slots *MPMC[int]
 	data  []T
@@ -24,9 +26,9 @@ func NewArrayMPMC[T any](capacity uint64) *ArrayMPMC[T] {
 	return nonBlockingArray
 }
 
-// Enqueue pushes an element into the queue.
+// Acquire pushes an element into the queue.
 // May be called concurrently from many goroutines
-func (q *ArrayMPMC[T]) Enqueue(v T) (int, bool) {
+func (q *ArrayMPMC[T]) Acquire(v T) (int, bool) {
 	pos, ok := q.slots.Dequeue()
 	if !ok {
 		return 0, false
@@ -37,15 +39,20 @@ func (q *ArrayMPMC[T]) Enqueue(v T) (int, bool) {
 
 // Get retrieves the element at the specified position in the dataset.
 // Can be called simultaneously from many goroutines (read-only) for pos, which is not released
+// NOTE:
+// - Get does NOT synchronize with Acquire's write by itself.
+// - Do not call Get(pos) after Release(pos).
 func (q *ArrayMPMC[T]) Get(pos int) T {
 	return q.data[pos]
 }
 
-// Release releases an element into the queue.
+// Release releases a slot back into the free-list.
 // May be called concurrently from many goroutines
 // Note: Release for one position should be called once
 func (q *ArrayMPMC[T]) Release(pos int) {
-	if !q.slots.Enqueue(pos) {
-		panic("unreached")
+	var zero T
+	q.data[pos] = zero
+	for !q.slots.Enqueue(pos) {
+		runtime.Gosched()
 	}
 }

@@ -1,6 +1,7 @@
 package ringbuffer
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -16,7 +17,7 @@ func TestMPSCSequential(t *testing.T) {
 
 	q := NewMPSC[int](capacity)
 
-	// Enqueue N items
+	// Acquire N items
 	for i := 0; i < N; i++ {
 		ok := q.Enqueue(i)
 		if i < capacity {
@@ -316,4 +317,102 @@ func BenchmarkChan(b *testing.B) {
 		}
 	}
 
+}
+
+func TestMPMC_TokenPoolInvariant(t *testing.T) {
+	t.Parallel()
+
+	const (
+		capacity = 1 << 10
+		workers  = 64
+		opsTotal = 2_000_00
+	)
+
+	q := NewMPMC[int](capacity)
+
+	// Prefill tokens 0..capacity-1
+	for i := 0; i < capacity; i++ {
+		if !q.Enqueue(i) {
+			t.Fatalf("prefill enqueue failed at %d", i)
+		}
+	}
+
+	// inUse[token] = 0/1
+	inUse := make([]atomic.Uint32, capacity)
+
+	var done atomic.Int64
+	var failed atomic.Bool
+	var failMsg atomic.Value // string
+
+	fail := func(msg string) {
+		t.Log(msg)
+		if failed.CompareAndSwap(false, true) {
+			failMsg.Store(msg)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for w := 0; w < workers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+
+			for {
+				if failed.Load() {
+					return
+				}
+				n := done.Load()
+				if n >= opsTotal {
+					return
+				}
+
+				tok, ok := q.Dequeue()
+				if !ok {
+					runtime.Gosched()
+					continue
+				}
+				if tok < 0 || tok >= capacity {
+					fail(fmt.Sprintf("out-of-range token=%d", tok))
+					return
+				}
+
+				// Detect duplicate checkout
+				if !inUse[tok].CompareAndSwap(0, 1) {
+					fail(fmt.Sprintf("DUPLICATE token checkout: tok=%d worker=%d", tok, workerID))
+					return
+				}
+
+				// Simulate tiny work / reschedule noise
+				if (tok & 7) == 0 {
+					runtime.Gosched()
+				}
+
+				if !inUse[tok].CompareAndSwap(1, 0) {
+					fail(fmt.Sprintf("token state corruption: tok=%d worker=%d", tok, workerID))
+					return
+				}
+
+				// Put token back
+				for q.Enqueue(tok) {
+					break
+				}
+
+				done.Add(1)
+			}
+		}(w)
+	}
+
+	wg.Wait()
+
+	if failed.Load() {
+		t.Fatal(failMsg.Load().(string))
+	}
+
+	// Optional: sanity check that all tokens ended up back "free"
+	for i := 0; i < capacity; i++ {
+		if inUse[i].Load() != 0 {
+			t.Fatalf("token %d left in-use at end", i)
+		}
+	}
 }

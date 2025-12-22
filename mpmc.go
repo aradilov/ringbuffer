@@ -18,6 +18,8 @@ type MPMC[T any] struct {
 	_        [64]byte
 }
 
+const goschedEvery = 64 // reduce runtime.Gosched() frequency in hot loops
+
 // NewMPMC creates a bounded MPMC ring queue.
 // 'capacity' must be a power of two (1<<k).
 func NewMPMC[T any](capacity uint64) *MPMC[T] {
@@ -42,6 +44,7 @@ func NewMPMC[T any](capacity uint64) *MPMC[T] {
 // Returns false if the queue is full (overflow).
 // Safe to call concurrently from many producer goroutines.
 func (q *MPMC[T]) Enqueue(v T) bool {
+	var spins uint32
 	for {
 		pos := q.enqueue.Load()
 		s := &q.slots[pos&q.mask]
@@ -58,7 +61,10 @@ func (q *MPMC[T]) Enqueue(v T) bool {
 				s.seq.Store(pos + 1)
 				return true
 			}
-			// Lost the race, retry.
+			spins++
+			if spins%goschedEvery == 0 {
+				runtime.Gosched()
+			}
 		} else if diff < 0 {
 			// diff < 0 => consumer has not yet freed this slot.
 			// MPMC is full for this producer.
@@ -66,7 +72,10 @@ func (q *MPMC[T]) Enqueue(v T) bool {
 		} else {
 			// diff > 0 => this slot still belongs to a previous cycle.
 			// Just retry with a new pos.
-			runtime.Gosched()
+			spins++
+			if spins%goschedEvery == 0 {
+				runtime.Gosched()
+			}
 		}
 	}
 }
@@ -76,7 +85,7 @@ func (q *MPMC[T]) Enqueue(v T) bool {
 // Safe to call concurrently from many consumer goroutines.
 func (q *MPMC[T]) Dequeue() (T, bool) {
 	var zero T
-
+	var spins uint32
 	for {
 		pos := q.dequeue.Load()
 		s := &q.slots[pos&q.mask]
@@ -88,7 +97,10 @@ func (q *MPMC[T]) Dequeue() (T, bool) {
 			// Element is ready for this position, try to claim it.
 			if !q.dequeue.CompareAndSwap(pos, pos+1) {
 				// Another consumer won this slot, retry.
-				runtime.Gosched()
+				spins++
+				if spins%goschedEvery == 0 {
+					runtime.Gosched()
+				}
 				continue
 			}
 
@@ -108,7 +120,10 @@ func (q *MPMC[T]) Dequeue() (T, bool) {
 
 		// diff > 0 => producer is not done yet or intermediate state.
 		// Yield to let producers/other consumers make progress.
-		runtime.Gosched()
+		spins++
+		if spins%goschedEvery == 0 {
+			runtime.Gosched()
+		}
 	}
 }
 

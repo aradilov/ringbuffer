@@ -16,7 +16,7 @@ func TestMPMCSequential(t *testing.T) {
 
 	q := NewMPMC[int](capacity)
 
-	// Enqueue N items
+	// Acquire N items
 	for i := 0; i < N; i++ {
 		ok := q.Enqueue(i)
 		if i < capacity {

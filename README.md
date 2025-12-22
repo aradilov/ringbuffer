@@ -6,6 +6,7 @@ This repository contains three production-ready queue implementations:
 
 - **MPSC** — multi-producer, single-consumer, bounded, lock-free
 - **MPMC** — multi-producer, multi-consumer, bounded, lock-free
+- **[Array MPMC](ArrayMPMC.md)** — is a bounded, allocation-free, contention-resistant pool
 
 Both queues provide:
 

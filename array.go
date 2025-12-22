@@ -7,6 +7,13 @@ type ArrayMPMC[T any] struct {
 	data  []T
 }
 
+// NewPool alias for NewArrayMPMC (new version)
+func NewPool[T any](capacity uint64) *ArrayMPMC[T] {
+	return NewArrayMPMC[T](capacity)
+}
+
+// NewArrayMPMC initializes a new ArrayMPMC instance with the specified capacity, which must be a power of 2 and greater than 0.
+// Panics if the capacity is invalid.
 func NewArrayMPMC[T any](capacity uint64) *ArrayMPMC[T] {
 	if capacity == 0 || (capacity&(capacity-1)) != 0 {
 		panic("capacity must be power of 2 and > 0")

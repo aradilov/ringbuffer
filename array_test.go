@@ -2,6 +2,7 @@ package ringbuffer
 
 import (
 	"fmt"
+	"github.com/valyala/fastrand"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -177,15 +178,51 @@ func cpuWork(seed int) int {
 	return x
 }
 
+const ioParallelism = 1 << 11
+
+//go:noinline
+func ioDelay() time.Duration {
+
+	p := fastrand.Uint32n(101)
+
+	switch {
+	case p < 80:
+		return 200 * time.Microsecond
+	case p < 95:
+		return time.Millisecond
+	case p <= 99:
+		return 5 * time.Millisecond
+	default:
+		return 10 * time.Millisecond
+	}
+}
+
 var benchSink64 int64
 
 func benchPoolParallel(b *testing.B, workHolding int) {
 	const capacity = 1 << 16
 
-	for _, p := range []int{1, 2, 4, 8, 32, 128} {
+	for _, p := range []int{1, 2, 4, 8, 32, 128, 256} {
 		b.Run(fmt.Sprintf("p=%d", p), func(b *testing.B) {
 			b.Run("ArrayMPMC", func(b *testing.B) {
 				q := NewArrayMPMC[int](capacity)
+
+				var ioq chan int
+				var ioWG sync.WaitGroup
+				if 2 == workHolding {
+					ioq = make(chan int, capacity)
+					ioWG.Add(ioParallelism)
+					for w := 0; w < ioParallelism; w++ {
+						go func() {
+							defer ioWG.Done()
+							for pos := range ioq {
+								_ = q.Get(pos)
+								time.Sleep(ioDelay())
+								q.Release(pos)
+							}
+						}()
+					}
+				}
 
 				var fails atomic.Uint64
 				b.ReportAllocs()
@@ -196,6 +233,7 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 					var localSink int
 					i := 0
 					localFails := uint64(0)
+
 					for pb.Next() {
 						for {
 							pos, ok := q.Acquire(i)
@@ -214,11 +252,7 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 								localSink = cpuWork(v)
 								q.Release(pos)
 							case 2:
-								go func(pos int) {
-									time.Sleep(time.Millisecond)
-									_ = q.Get(pos)
-									q.Release(pos)
-								}(pos)
+								ioq <- pos
 							}
 
 							i++
@@ -232,6 +266,10 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 				})
 
 				b.StopTimer()
+				if 2 == workHolding {
+					close(ioq)
+					ioWG.Wait()
+				}
 				//b.Logf("benchSink64=%d", atomic.LoadInt64(&benchSink64))
 				//b.Logf("fails=%d", fails.Load())
 				b.StartTimer()
@@ -239,6 +277,23 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 
 			b.Run("MutexPool", func(b *testing.B) {
 				pool := NewMutexPool[int](capacity)
+
+				var ioq chan int
+				var ioWG sync.WaitGroup
+				if workHolding == 2 {
+					ioq = make(chan int, capacity)
+					ioWG.Add(ioParallelism)
+					for w := 0; w < ioParallelism; w++ {
+						go func() {
+							defer ioWG.Done()
+							for pos := range ioq {
+								_ = pool.Get(pos)
+								time.Sleep(ioDelay())
+								pool.Release(pos)
+							}
+						}()
+					}
+				}
 
 				var fails atomic.Uint64
 				b.ReportAllocs()
@@ -249,6 +304,7 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 					var localSink int
 					i := 0
 					localFails := uint64(0)
+
 					for pb.Next() {
 						for {
 							pos, ok := pool.TryAcquire(i)
@@ -268,11 +324,7 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 								localSink = cpuWork(v)
 								pool.Release(pos)
 							case 2:
-								go func(pos int) {
-									time.Sleep(time.Millisecond)
-									_ = pool.Get(pos)
-									pool.Release(pos)
-								}(pos)
+								ioq <- pos
 							}
 
 							i++
@@ -286,6 +338,10 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 				})
 
 				b.StopTimer()
+				if 2 == workHolding {
+					close(ioq)
+					ioWG.Wait()
+				}
 				//b.Logf("benchSink64=%d", atomic.LoadInt64(&benchSink64))
 				//b.Logf("fails=%d", fails.Load())
 				b.StartTimer()

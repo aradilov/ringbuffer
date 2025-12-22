@@ -71,46 +71,6 @@ func (q *MPSC[T]) Enqueue(v T) bool {
 	}
 }
 
-// Get returns T by slot position
-func (q *MPSC[T]) Get(slotPosition uint64) T {
-	s := &q.slots[slotPosition&q.mask]
-	return s.val
-}
-
-// Release marks slot as free for the producers.
-func (q *MPSC[T]) Release(slotPosition uint64) {
-	s := &q.slots[slotPosition&q.mask]
-	s.seq.Store(slotPosition + q.capacity)
-}
-
-// Next pops an element from the queue but doesn't mark slot as free for the producers. Use Release method for it.
-// Returns (zero, 0, false) if the queue is empty, otherwise (T, slot position, true).
-// IMPORTANT: must be called from a single consumer goroutine.
-// IMPORTANT: Each successful Next call requires a Release
-func (q *MPSC[T]) Next() (T, uint64, bool) {
-	pos := q.dequeue
-	s := &q.slots[pos&q.mask]
-
-	seq := s.seq.Load()
-	diff := int64(seq) - int64(pos+1)
-
-	var zero T
-
-	if diff == 0 {
-		q.dequeue = pos + 1
-		v := s.val
-		return v, pos, true
-	}
-
-	if diff < 0 {
-		// queue is logically empty (consumer is ahead of producers)
-		return zero, 0, false
-	}
-
-	// diff > 0 => producer is not done yet or in intermediate state
-	return zero, 0, false
-}
-
 // Dequeue pops an element from the queue and marks slot as free for producers.
 // Returns (zero, false) if the queue is empty.
 // IMPORTANT: must be called from a single consumer goroutine.

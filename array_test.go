@@ -180,9 +180,9 @@ func cpuWork(seed int) int {
 var benchSink64 int64
 
 func benchPoolParallel(b *testing.B, workHolding int) {
-	const capacity = 1 << 12
+	const capacity = 1 << 16
 
-	for _, p := range []int{1, 2, 4, 8, 32} {
+	for _, p := range []int{1, 2, 4, 8, 32, 128} {
 		b.Run(fmt.Sprintf("p=%d", p), func(b *testing.B) {
 			b.Run("ArrayMPMC", func(b *testing.B) {
 				q := NewArrayMPMC[int](capacity)
@@ -233,7 +233,7 @@ func benchPoolParallel(b *testing.B, workHolding int) {
 
 				b.StopTimer()
 				//b.Logf("benchSink64=%d", atomic.LoadInt64(&benchSink64))
-				//				b.Logf("fails=%d", fails.Load())
+				//b.Logf("fails=%d", fails.Load())
 				b.StartTimer()
 			})
 

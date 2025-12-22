@@ -94,30 +94,6 @@ func BenchmarkArrayMPMC_RoundTrip(b *testing.B) {
 	}
 }
 
-func BenchmarkArrayMPMC_ParallelRoundTrip(b *testing.B) {
-	const capacity = 1 << 16
-	q := NewArrayMPMC[int](capacity)
-
-	b.ReportAllocs()
-	b.SetParallelism(1)
-	b.ResetTimer()
-
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			pos, ok := q.Acquire(i)
-			if !ok {
-				// queue full => backoff
-				runtime.Gosched()
-				continue
-			}
-			_ = q.Get(pos)
-			q.Release(pos)
-			i++
-		}
-	})
-}
-
 func TestArrayMPMC_Stress(t *testing.T) {
 	const (
 		capacity = 1 << 16
@@ -160,5 +136,64 @@ func TestArrayMPMC_Stress(t *testing.T) {
 
 	if failed.Load() {
 		t.Fatal(errMsg.Load().(string))
+	}
+}
+
+func BenchmarkArrayMPMC_ParallelRoundTrip(b *testing.B) {
+	parallelRoundTrip(b, false)
+}
+
+func BenchmarkArrayMPMC_ParallelRoundTrip_WorkHolding(b *testing.B) {
+	parallelRoundTrip(b, true)
+}
+
+func parallelRoundTrip(b *testing.B, workHolding bool) {
+	const capacity = 1 << 12
+
+	for _, p := range []int{1, 2, 4, 8} {
+		b.Run(fmt.Sprintf("p=%d", p), func(b *testing.B) {
+			q := NewArrayMPMC[int](capacity)
+
+			var fails atomic.Uint64
+			b.ReportAllocs()
+			b.SetParallelism(p)
+			b.ResetTimer()
+
+			b.RunParallel(func(pb *testing.PB) {
+				i := 0
+				localFails := uint64(0)
+				for pb.Next() {
+					for {
+						pos, ok := q.Acquire(i)
+						if !ok {
+							localFails++
+							runtime.Gosched()
+							continue
+						}
+
+						if workHolding {
+							x := 0
+							for k := 0; k < 256; k++ {
+								x = x*1664525 + 1013904223
+							}
+							_ = x
+						}
+
+						_ = q.Get(pos)
+						q.Release(pos)
+						i++
+						break
+					}
+				}
+				if localFails != 0 {
+					fails.Add(localFails)
+				}
+			})
+
+			b.StopTimer()
+			//totalFails := fails.Load()
+			//b.Logf("fails=%d", totalFails)
+			b.StartTimer()
+		})
 	}
 }
